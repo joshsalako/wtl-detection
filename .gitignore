@@ -1,0 +1,13 @@
+.venv
+.env
+*.pth
+*.pt
+dataset/*
+dataset_clahe/*
+__pycache__
+.ruff_cache
+*.json
+*.csv
+detection/active_learning/to_annotate/*
+detection/active_learning/annotated/*
+detection/active_learning/data/*

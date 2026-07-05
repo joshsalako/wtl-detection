@@ -1,0 +1,9 @@
+path: /home/Joshua/Downloads/active_learning_research/detection/active_learning/data/faster_rcnn_clahe/pretrained/cycle_0/mapped
+train: train/images
+val: val/images
+test: test/images
+
+names:
+  0: Other_Amphibian
+  1: Small_Mammal
+  2: Western_Leopard_Toad
