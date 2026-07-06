@@ -21,6 +21,7 @@ from central_config import (
     DEFAULT_IOU_THRESHOLD,
     DEFAULT_OCCURRENCE_THRESHOLD,
     DETECTION_DIR,
+    MAX_ACTIVE_LEARNING_CYCLES,
 )
 from config import (
     PRETRAINED_YOLO,
@@ -371,6 +372,18 @@ def main():
 
                 state["model_paths"][mode_val] = model_weight
                 print(f"Trained model verified at: {model_weight}")
+
+                # ----------------------------------------------------
+                # AL CYCLE LIMIT CHECK
+                # ----------------------------------------------------
+                if cycle >= MAX_ACTIVE_LEARNING_CYCLES:
+                    print(
+                        f"\n[AL PAUSE] Maximum AL cycle ({MAX_ACTIVE_LEARNING_CYCLES}) reached for {m_type.upper()}."
+                    )
+                    print(
+                        "           Model is trained. Skipping inference and sampling."
+                    )
+                    continue
 
                 # ----------------------------------------------------
                 # PHASE 2: AUTOMATED BATCH INFERENCE & FILTERING

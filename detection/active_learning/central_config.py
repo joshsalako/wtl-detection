@@ -66,6 +66,7 @@ for i, name in CLASSES_DICT.items():
         DETECTION_THRESHOLDS[i] = 0.25  # Generic default threshold
 
 # --- Active Learning Curation Settings ---
+MAX_ACTIVE_LEARNING_CYCLES = 5
 CURATION_TARGET_CLASS = "Western_Leopard_Toad"
 
 DCUS_BUDGET_MULTIPLIER = (
