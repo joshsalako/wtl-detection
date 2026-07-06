@@ -12,6 +12,10 @@ if ACTIVE_LEARNING_DIR not in sys.path:
 if DETECTION_DIR not in sys.path:
     sys.path.append(DETECTION_DIR)
 
+PIPELINES_DIR = os.path.join(ACTIVE_LEARNING_DIR, "pipelines")
+if PIPELINES_DIR not in sys.path:
+    sys.path.append(PIPELINES_DIR)
+
 from consensus_config import (
     UNLABELED_POOL_DIRS,
     TARGET_CAMERAS,
