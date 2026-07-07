@@ -4,10 +4,12 @@ import sys
 # Add root paths
 CONSENSUS_DIR = os.path.dirname(os.path.abspath(__file__))
 DETECTION_DIR = os.path.dirname(CONSENSUS_DIR)
-RESEARCH_DIR = os.path.dirname(DETECTION_DIR)
+ACTIVE_LEARNING_DIR = os.path.join(DETECTION_DIR, "active_learning")
 
 if DETECTION_DIR not in sys.path:
     sys.path.append(DETECTION_DIR)
+if ACTIVE_LEARNING_DIR not in sys.path:
+    sys.path.append(ACTIVE_LEARNING_DIR)
 
 from central_config import UNLABELED_POOL_DIRS
 

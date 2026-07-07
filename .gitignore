@@ -11,3 +11,4 @@ __pycache__
 detection/active_learning/to_annotate/*
 detection/active_learning/annotated/*
 detection/active_learning/data/*
+detection/consensus/outputs/yolo_labels/*

@@ -3,6 +3,7 @@ import glob
 import pandas as pd
 import numpy as np
 import cv2
+import multiprocessing
 from pathlib import Path
 from tqdm import tqdm
 
@@ -11,7 +12,6 @@ from consensus_config import (
     YOLO_LABELS_OUTPUT_DIR,
     IOU_THRESHOLD,
     MIN_CONSENSUS_MODELS,
-    RESEARCH_DIR,
     RAW_DATASET_BASE,
 )
 
@@ -106,6 +106,41 @@ def get_yolo_format(box, img_w, img_h):
     return cx / img_w, cy / img_h, w / img_w, h / img_h
 
 
+def process_group(args):
+    img_path, cls_id, group_df, iou_thresh, min_models = args
+    valid_boxes = apply_clustering_consensus(group_df, iou_thresh, min_models)
+    return img_path, cls_id, valid_boxes
+
+
+def write_yolo_labels_worker(args):
+    img_path, preds, raw_base, out_dir_base = args
+    if not os.path.exists(img_path):
+        return 0
+
+    img = cv2.imread(img_path)
+    if img is None:
+        return 0
+    img_h, img_w = img.shape[:2]
+
+    if img_path.startswith(raw_base):
+        rel_path = os.path.relpath(img_path, raw_base)
+        out_dir = os.path.join(out_dir_base, os.path.dirname(rel_path))
+        os.makedirs(out_dir, exist_ok=True)
+        img_name = os.path.basename(img_path)
+        out_txt_path = os.path.join(out_dir, os.path.splitext(img_name)[0] + ".txt")
+    else:
+        out_dir = os.path.join(out_dir_base, "fallback")
+        os.makedirs(out_dir, exist_ok=True)
+        img_name = os.path.basename(img_path)
+        out_txt_path = os.path.join(out_dir, os.path.splitext(img_name)[0] + ".txt")
+
+    with open(out_txt_path, "w") as f_out:
+        for cls_id, box in preds:
+            cx, cy, w, h = get_yolo_format(box, img_w, img_h)
+            f_out.write(f"{cls_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+    return len(preds)
+
+
 def main():
     csv_files = glob.glob(os.path.join(CSV_OUTPUT_DIR, "*_predictions.csv"))
     if not csv_files:
@@ -132,13 +167,22 @@ def main():
 
     print("Applying consensus filtering...")
     final_predictions = {}  # image_path -> list of (class_id, yolo_box)
-
     total_preserved = 0
-    for (img_path, cls_id), group_df in tqdm(grouped):
-        valid_boxes = apply_clustering_consensus(
-            group_df, IOU_THRESHOLD, MIN_CONSENSUS_MODELS
+
+    # Prepare arguments for multiprocessing
+    group_args = [
+        (img_path, cls_id, group_df, IOU_THRESHOLD, MIN_CONSENSUS_MODELS)
+        for (img_path, cls_id), group_df in grouped
+    ]
+
+    num_cores = max(1, multiprocessing.cpu_count() - 2)
+    print(f"Using {num_cores} cores for clustering...")
+    with multiprocessing.Pool(num_cores) as pool:
+        results = list(
+            tqdm(pool.imap_unordered(process_group, group_args), total=len(group_args))
         )
 
+    for img_path, cls_id, valid_boxes in results:
         if valid_boxes:
             if img_path not in final_predictions:
                 final_predictions[img_path] = []
@@ -148,39 +192,21 @@ def main():
 
     print(f"\nConsensus resulted in {total_preserved} preserved bounding boxes.")
 
-    print("Writing YOLO format labels...")
+    print(f"Writing YOLO format labels using {num_cores} cores (I/O heavy)...")
     os.makedirs(YOLO_LABELS_OUTPUT_DIR, exist_ok=True)
 
-    for img_path, preds in tqdm(final_predictions.items()):
-        if not os.path.exists(img_path):
-            continue
+    write_args = [
+        (img_path, preds, RAW_DATASET_BASE, YOLO_LABELS_OUTPUT_DIR)
+        for img_path, preds in final_predictions.items()
+    ]
 
-        img = cv2.imread(img_path)
-        if img is None:
-            continue
-        img_h, img_w = img.shape[:2]
-
-        if img_path.startswith(RAW_DATASET_BASE):
-            rel_path = os.path.relpath(img_path, RAW_DATASET_BASE)
-            out_dir = os.path.join(YOLO_LABELS_OUTPUT_DIR, os.path.dirname(rel_path))
-            os.makedirs(out_dir, exist_ok=True)
-
-            img_name = os.path.basename(img_path)
-            out_txt_path = os.path.join(out_dir, os.path.splitext(img_name)[0] + ".txt")
-
-            with open(out_txt_path, "w") as f_out:
-                for cls_id, box in preds:
-                    cx, cy, w, h = get_yolo_format(box, img_w, img_h)
-                    f_out.write(f"{cls_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
-        else:
-            out_dir = os.path.join(YOLO_LABELS_OUTPUT_DIR, "fallback")
-            os.makedirs(out_dir, exist_ok=True)
-            img_name = os.path.basename(img_path)
-            out_txt_path = os.path.join(out_dir, os.path.splitext(img_name)[0] + ".txt")
-            with open(out_txt_path, "w") as f_out:
-                for cls_id, box in preds:
-                    cx, cy, w, h = get_yolo_format(box, img_w, img_h)
-                    f_out.write(f"{cls_id} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+    with multiprocessing.Pool(num_cores) as pool:
+        list(
+            tqdm(
+                pool.imap_unordered(write_yolo_labels_worker, write_args),
+                total=len(write_args),
+            )
+        )
 
     print(f"\nDone! Labels saved to {YOLO_LABELS_OUTPUT_DIR}")
 
