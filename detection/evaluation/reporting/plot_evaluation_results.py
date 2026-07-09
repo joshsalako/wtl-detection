@@ -5,6 +5,7 @@ import json
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import urllib.parse
 from sklearn.metrics import roc_curve
 
 
@@ -251,6 +252,9 @@ def plot_detection_wlt_pr_curve():
             for item in preds_list:
                 key = _format_cvat(item["path"])
                 pred_by_name[key] = item.get("predictions", [])
+                encoded_key = urllib.parse.quote(key)
+                if encoded_key != key:
+                    pred_by_name[encoded_key] = item.get("predictions", [])
 
             scores = []
             total_gt = 0

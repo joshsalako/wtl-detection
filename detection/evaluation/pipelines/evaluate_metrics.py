@@ -15,6 +15,7 @@ from sklearn.metrics import (
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 import torch
 import sys
+import urllib.parse
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
@@ -170,24 +171,21 @@ def get_image_level_probs(gt_dict, preds_list, target_class=None):
     If target_class is None, it is class-agnostic (any object).
     Otherwise it looks for the specific class.
     """
-    pred_dict = {}
-    for p in preds_list:
-        cvat_name = format_cvat_filename(p["path"])
-        pred_dict[cvat_name] = p.get("predictions", [])
-
-        import urllib.parse
-
-        encoded_name = urllib.parse.quote(cvat_name)
-        if encoded_name != cvat_name:
-            pred_dict[encoded_name] = p.get("predictions", [])
-    all_names = set(gt_dict.keys()).union(set(pred_dict.keys()))
-
     y_true = []
     y_score = []
 
-    for img_name in all_names:
-        if img_name in gt_dict:
-            gt_boxes = gt_dict[img_name]
+    for p in preds_list:
+        cvat_name = format_cvat_filename(p["path"])
+        encoded_name = urllib.parse.quote(cvat_name)
+
+        if cvat_name in gt_dict:
+            gt_boxes = gt_dict[cvat_name]
+        elif encoded_name in gt_dict:
+            gt_boxes = gt_dict[encoded_name]
+        else:
+            gt_boxes = None
+
+        if gt_boxes is not None:
             if target_class is None:
                 is_pos = int(len(gt_boxes) > 0)
             else:
@@ -197,7 +195,7 @@ def get_image_level_probs(gt_dict, preds_list, target_class=None):
 
         y_true.append(is_pos)
 
-        p_boxes = pred_dict.get(img_name, [])
+        p_boxes = p.get("predictions", [])
         if target_class is None:
             max_conf = max([b["conf"] for b in p_boxes] + [0.0])
         else:
