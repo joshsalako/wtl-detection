@@ -82,8 +82,11 @@ def load_ground_truth(dataset_dir):
 
 def calculate_detection_metrics(gt_dict, preds_list):
     """Calculates AP metrics using torchmetrics."""
-    metric = MeanAveragePrecision(
+    metric_50_95 = MeanAveragePrecision(
         box_format="xyxy", iou_type="bbox", class_metrics=True
+    )
+    metric_50 = MeanAveragePrecision(
+        box_format="xyxy", iou_type="bbox", class_metrics=True, iou_thresholds=[0.5]
     )
 
     # Map predictions to dictionary by CVAT filename format for easy access
@@ -156,8 +159,9 @@ def calculate_detection_metrics(gt_dict, preds_list):
                 }
             )
 
-    metric.update(preds_fmt, targets_fmt)
-    return metric.compute()
+    metric_50_95.update(preds_fmt, targets_fmt)
+    metric_50.update(preds_fmt, targets_fmt)
+    return metric_50_95.compute(), metric_50.compute()
 
 
 def get_image_level_probs(gt_dict, preds_list, target_class=None):
@@ -294,13 +298,14 @@ def main():
         gt_dict = test_gt if "test" in dataset_name else val_gt
 
         # 1. Detection Metrics (Automatically evaluated only on images that exist in GT)
-        det_metrics = calculate_detection_metrics(gt_dict, preds)
+        det_metrics_50_95, det_metrics_50 = calculate_detection_metrics(gt_dict, preds)
 
-        mAP50 = det_metrics["map_50"].item()
-        mAP50_95 = det_metrics["map"].item()
+        mAP50 = det_metrics_50["map"].item() if "map" in det_metrics_50 else 0.0
+        mAP50_95 = det_metrics_50_95["map"].item() if "map" in det_metrics_50_95 else 0.0
 
         # Class APs
-        classes_ap50 = det_metrics["map_per_class"]
+        classes_ap50 = det_metrics_50.get("map_per_class", torch.tensor([]))
+        classes_ap50_95 = det_metrics_50_95.get("map_per_class", torch.tensor([]))
 
         row_det = {
             "Model": model_name,
@@ -315,8 +320,18 @@ def main():
             row_det["Other_Amphibian_AP50"] = classes_ap50[
                 OTHER_AMPHIBIAN_CLASS_ID
             ].item()
+            row_det["Other_Amphibian_AP95"] = classes_ap50_95[OTHER_AMPHIBIAN_CLASS_ID].item()
             row_det["Small_Mammal_AP50"] = classes_ap50[SMALL_MAMMAL_CLASS_ID].item()
+            row_det["Small_Mammal_AP95"] = classes_ap50_95[SMALL_MAMMAL_CLASS_ID].item()
             row_det["WLT_AP50"] = classes_ap50[WLT_CLASS_ID].item()
+            row_det["WLT_AP95"] = classes_ap50_95[WLT_CLASS_ID].item()
+        else:
+            row_det["Other_Amphibian_AP50"] = -1
+            row_det["Other_Amphibian_AP95"] = -1
+            row_det["Small_Mammal_AP50"] = -1
+            row_det["Small_Mammal_AP95"] = -1
+            row_det["WLT_AP50"] = -1
+            row_det["WLT_AP95"] = -1
 
         detection_results.append(row_det)
 
