@@ -7,6 +7,36 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import roc_curve, precision_recall_curve
 
+plt.rcParams.update(
+    {
+        "font.size": 18,
+        "axes.labelsize": 20,
+        "axes.titlesize": 22,
+        "xtick.labelsize": 16,
+        "ytick.labelsize": 16,
+        "legend.fontsize": 18,
+        "lines.linewidth": 3,
+    }
+)
+
+MODEL_NAME_MAP = {
+    "yolo_clahe": "YOLO",
+    "faster_rcnn_clahe": "Faster R-CNN",
+    "rtdetr_clahe": "RT-DETR",
+    "megadetector": "MegaDetector",
+}
+
+
+def format_cycle(cycle_str):
+    if cycle_str == "N/A" or not cycle_str.startswith("cycle_"):
+        return ""
+    try:
+        c_num = int(cycle_str.split("_")[1])
+        return f"Cycle {c_num + 1}"
+    except:
+        return cycle_str
+
+
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from eval_utils.config import (
     FILES_DIR,
@@ -34,42 +64,76 @@ def plot_roc_pr(df_json_path, output_prefix, title_suffix):
     # We only plot for test_full dataset
     df_test = df[df["Dataset"] == "test_full"]
 
-    plt.figure(figsize=(10, 8))
-    for _, row in df_test.iterrows():
-        label = f"{row['Model']} {row['Cycle']} (AUC: {row['AUC']:.3f})"
-        y_true = row["y_true"]
-        y_score = row["y_score"]
-        fpr, tpr, _ = roc_curve(y_true, y_score)
-        plt.plot(fpr, tpr, label=label)
+    cycles_to_plot = ["cycle_0", "cycle_1", "cycle_2", "cycle_3", "cycle_4"]
 
-    plt.plot([0, 1], [0, 1], "k--")
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel("False Positive Rate")
-    plt.ylabel("True Positive Rate")
-    plt.title(f"ROC Curve {title_suffix}")
-    plt.legend(loc="lower right")
-    plt.savefig(os.path.join(PLOTS_DIR, f"{output_prefix}_roc_curve.pdf"), format="pdf")
-    plt.close()
+    for current_cycle in cycles_to_plot:
+        # Filter to only the current cycle and megadetector
+        df_cycle = df_test[
+            df_test["Cycle"].isin([current_cycle, "N/A"])
+            | (df_test["Model"] == "megadetector")
+        ]
 
-    # PR Curve
-    plt.figure(figsize=(10, 8))
-    for _, row in df_test.iterrows():
-        # F1 score as proxy for PR AUC
-        label = f"{row['Model']} {row['Cycle']} (Best F1: {row['Best_F1']:.3f})"
-        y_true = row["y_true"]
-        y_score = row["y_score"]
-        precision, recall, _ = precision_recall_curve(y_true, y_score)
-        plt.plot(recall, precision, label=label)
+        if df_cycle.empty:
+            continue
 
-    plt.xlim([0.0, 1.0])
-    plt.ylim([0.0, 1.05])
-    plt.xlabel("Recall")
-    plt.ylabel("Precision")
-    plt.title(f"PR Curve {title_suffix}")
-    plt.legend(loc="lower left")
-    plt.savefig(os.path.join(PLOTS_DIR, f"{output_prefix}_pr_curve.pdf"), format="pdf")
-    plt.close()
+        plt.figure(figsize=(12, 10))
+        for _, row in df_cycle.iterrows():
+            model_clean = MODEL_NAME_MAP.get(row["Model"], row["Model"])
+            cycle_clean = format_cycle(row["Cycle"])
+
+            # Format label cleanly
+            if cycle_clean:
+                label = f"{model_clean} {cycle_clean} (AUC: {row['AUC']:.3f})"
+            else:
+                label = f"{model_clean} (AUC: {row['AUC']:.3f})"
+
+            y_true = row["y_true"]
+            y_score = row["y_score"]
+            fpr, tpr, _ = roc_curve(y_true, y_score)
+            plt.plot(fpr, tpr, label=label)
+
+        plt.plot([0, 1], [0, 1], "k--", alpha=0.5)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel("False Positive Rate")
+        plt.ylabel("True Positive Rate")
+        plt.legend(loc="lower right")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(PLOTS_DIR, f"{output_prefix}_{current_cycle}_roc_curve.pdf"),
+            format="pdf",
+        )
+        plt.close()
+
+        # PR Curve
+        plt.figure(figsize=(12, 10))
+        for _, row in df_cycle.iterrows():
+            model_clean = MODEL_NAME_MAP.get(row["Model"], row["Model"])
+            cycle_clean = format_cycle(row["Cycle"])
+
+            if cycle_clean:
+                label = f"{model_clean} {cycle_clean} (Best F1: {row['Best_F1']:.3f})"
+            else:
+                label = f"{model_clean} (Best F1: {row['Best_F1']:.3f})"
+
+            y_true = row["y_true"]
+            y_score = row["y_score"]
+            precision, recall, _ = precision_recall_curve(y_true, y_score)
+            plt.plot(recall, precision, label=label)
+
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel("Recall")
+        plt.ylabel("Precision")
+        plt.legend(loc="lower left")
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(
+            os.path.join(PLOTS_DIR, f"{output_prefix}_{current_cycle}_pr_curve.pdf"),
+            format="pdf",
+        )
+        plt.close()
 
 
 def plot_confusion_matrices(df_json_path, output_prefix, title_suffix):
@@ -80,25 +144,37 @@ def plot_confusion_matrices(df_json_path, output_prefix, title_suffix):
         data = json.load(f)
 
     df = pd.DataFrame(data)
-    df_test = df[df["Dataset"] == "test"]
+    df_test = df[df["Dataset"] == "test_full"]
+
+    # Determine positive label based on title_suffix
+    pos_label = "WLT" if "WLT" in title_suffix else "Object"
 
     for _, row in df_test.iterrows():
         cm = np.array([[row["TN"], row["FP"]], [row["FN"], row["TP"]]])
 
-        plt.figure(figsize=(6, 5))
+        plt.figure(figsize=(8, 8))
         sns.heatmap(
             cm,
             annot=True,
             fmt="d",
             cmap="Blues",
-            xticklabels=["Negative", "Positive"],
-            yticklabels=["Negative", "Positive"],
+            cbar=False,
+            annot_kws={"size": 36},
+            xticklabels=["Background", pos_label],
+            yticklabels=["Background", pos_label],
         )
-        plt.xlabel("Predicted")
-        plt.ylabel("True")
-        plt.title(f"Confusion Matrix: {row['Model']} {row['Cycle']} ({title_suffix})")
+        plt.xlabel("Predicted", fontsize=22)
+        plt.ylabel("Ground truth", fontsize=22)
+        plt.xticks(fontsize=20)
+        plt.yticks(fontsize=20)
+        plt.tight_layout()
 
-        fname = f"{output_prefix}_cm_{row['Model']}_{row['Cycle']}.pdf"
+        # Clean names for filename
+        model_clean = row["Model"].replace("_clahe", "")
+        cycle_val = str(row["Cycle"])
+        cycle_clean = "baseline" if cycle_val in ["nan", "N/A"] else cycle_val
+
+        fname = f"{output_prefix}_{model_clean}_{cycle_clean}_cm.pdf"
         plt.savefig(os.path.join(PLOTS_DIR, fname), format="pdf")
         plt.close()
 

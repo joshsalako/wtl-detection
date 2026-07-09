@@ -219,8 +219,8 @@ def get_predictions_megadetector(model, img_paths, batch_size=MD_BATCH_SIZE):
     dataset = ActiveLearningInferenceDataset(
         img_paths,
         img_size=IMAGE_SIZE,
-        apply_clahe_flag=False,  # MD was not trained with CLAHE
-        model_type="yolo",
+        apply_clahe_flag=False,
+        model_type="megadetector",
     )
     dataloader = DataLoader(
         dataset,
@@ -286,7 +286,7 @@ def main():
                     with open(out_path, "w") as f:
                         json.dump(res, f, indent=4)
                     print(f"Saved {out_path}")
-    
+
     # Cleanup MD model from memory
     del md_model
     gc.collect()
@@ -353,7 +353,7 @@ def main():
                 with open(out_path, "w") as f:
                     json.dump(res, f, indent=4)
                 print(f"Saved {out_path}")
-            
+
             # Cleanup AL model from memory
             del model
             gc.collect()

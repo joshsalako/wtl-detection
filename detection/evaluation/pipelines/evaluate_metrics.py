@@ -35,6 +35,14 @@ from eval_utils.config import (
 )
 
 
+def format_cvat_filename(abs_path):
+    if "/srv/shared_leopard_toad/" in abs_path:
+        rel = abs_path.split("/srv/shared_leopard_toad/")[-1]
+        cvat_name = rel.replace("/", "_").replace("\\", "_")
+        return cvat_name
+    return os.path.basename(abs_path)
+
+
 def load_ground_truth(dataset_dir):
     """Loads GT labels into a dictionary: {path: [{"bbox": [x1, y1, x2, y2], "cls": cls_id}]}
     Also returns binary image-level labels for WLT (class 2) and Class Agnostic (any class)."""
@@ -78,10 +86,17 @@ def calculate_detection_metrics(gt_dict, preds_list):
         box_format="xyxy", iou_type="bbox", class_metrics=True
     )
 
-    # Map predictions to dictionary by filename for easy access
-    pred_dict = {
-        os.path.basename(p["path"]): p.get("predictions", []) for p in preds_list
-    }
+    # Map predictions to dictionary by CVAT filename format for easy access
+    pred_dict = {}
+    for p in preds_list:
+        cvat_name = format_cvat_filename(p["path"])
+        pred_dict[cvat_name] = p.get("predictions", [])
+
+        import urllib.parse
+
+        encoded_name = urllib.parse.quote(cvat_name)
+        if encoded_name != cvat_name:
+            pred_dict[encoded_name] = p.get("predictions", [])
 
     preds_fmt = []
     targets_fmt = []
@@ -151,9 +166,16 @@ def get_image_level_probs(gt_dict, preds_list, target_class=None):
     If target_class is None, it is class-agnostic (any object).
     Otherwise it looks for the specific class.
     """
-    pred_dict = {
-        os.path.basename(p["path"]): p.get("predictions", []) for p in preds_list
-    }
+    pred_dict = {}
+    for p in preds_list:
+        cvat_name = format_cvat_filename(p["path"])
+        pred_dict[cvat_name] = p.get("predictions", [])
+
+        import urllib.parse
+
+        encoded_name = urllib.parse.quote(cvat_name)
+        if encoded_name != cvat_name:
+            pred_dict[encoded_name] = p.get("predictions", [])
     all_names = set(gt_dict.keys()).union(set(pred_dict.keys()))
 
     y_true = []
@@ -238,14 +260,21 @@ def main():
     image_level_agnostic_results = []
 
     filtered_files = glob.glob(os.path.join(RESULTS_DIR, "*", "*_filtered.json"))
+    # Exclude megadetector from filtered files
+    filtered_files = [f for f in filtered_files if "megadetector" not in f]
 
-    for f_path in tqdm(filtered_files, desc="Evaluating models"):
+    # Include raw files for megadetector
+    md_raw_files = glob.glob(os.path.join(RESULTS_DIR, "megadetector", "*_raw.json"))
+
+    all_files_to_eval = filtered_files + md_raw_files
+
+    for f_path in tqdm(all_files_to_eval, desc="Evaluating models"):
         parts = f_path.split(os.sep)
         model_name = parts[-2]
         file_name = parts[-1]
 
         # parse file name: {dataset}_{cycle}_filtered.json
-        # Handle megadetector differently: test_full_filtered.json
+        # Handle megadetector differently: test_full_raw.json
         if "megadetector" in model_name:
             if "test_full" in file_name:
                 dataset_name = "test_full"

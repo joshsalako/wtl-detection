@@ -32,7 +32,7 @@ MIN_CONF_THRESHOLD = 0.05
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 IMAGE_SIZE = 640
 YOLO_BATCH_SIZE = 128
-FASTER_RCNN_BATCH_SIZE = 112
+FASTER_RCNN_BATCH_SIZE = 64
 MD_BATCH_SIZE = 128
 MD_WEIGHTS_PATH = os.path.join(EVAL_DIR, "weights", "md_v5a.0.0.pt")
 

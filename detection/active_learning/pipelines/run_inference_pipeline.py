@@ -102,7 +102,9 @@ class ActiveLearningInferenceDataset(Dataset):
             img_bgr, (new_w, new_h), interpolation=cv2.INTER_LINEAR
         )
 
-        if self.apply_clahe_flag:
+        if self.model_type == "megadetector":
+            pass  # MegaDetector expects native RGB, do no transformation
+        elif self.apply_clahe_flag:
             img_resized = self.apply_clahe(img_resized)
         else:
             gray = cv2.cvtColor(img_resized, cv2.COLOR_BGR2GRAY)
