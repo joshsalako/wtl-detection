@@ -213,32 +213,29 @@ def get_image_level_probs(gt_dict, preds_list, target_class=None):
 def calculate_threshold_sweep(y_true, y_score):
     """Finds best F1 threshold and returns metrics."""
     precisions, recalls, thresholds = precision_recall_curve(y_true, y_score)
-    # Add 1.0 threshold for completeness
-    thresholds = np.append(thresholds, 1.0)
+    p_valid = precisions[:-1]
+    r_valid = recalls[:-1]
 
     f1_scores = np.divide(
-        2 * (precisions * recalls),
-        (precisions + recalls),
-        out=np.zeros_like(precisions),
-        where=(precisions + recalls) != 0,
+        2 * (p_valid * r_valid),
+        (p_valid + r_valid),
+        out=np.zeros_like(p_valid),
+        where=(p_valid + r_valid) != 0,
     )
 
     if len(f1_scores) > 0:
         best_idx = np.argmax(f1_scores)
         best_thresh = thresholds[best_idx]
         best_f1 = f1_scores[best_idx]
-        best_p = precisions[best_idx]
-        best_r = recalls[best_idx]
+        best_p = p_valid[best_idx]
+        best_r = r_valid[best_idx]
     else:
         best_thresh, best_f1, best_p, best_r = 0, 0, 0, 0
 
-    # Calculate confusion matrix for best threshold
+    # Calculate confusion matrix for best threshold.
     y_pred = (y_score >= best_thresh).astype(int)
-    tn, fp, fn, tp = (
-        confusion_matrix(y_true, y_pred).ravel()
-        if len(np.unique(y_true)) > 1
-        else (0, 0, 0, 0)
-    )
+    cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
 
     return {
         "best_threshold": best_thresh,
@@ -264,21 +261,22 @@ def main():
     image_level_agnostic_results = []
 
     filtered_files = glob.glob(os.path.join(RESULTS_DIR, "*", "*_filtered.json"))
-    # Exclude megadetector from filtered files
+    # Exclude megadetector from filtered files (handled separately below)
     filtered_files = [f for f in filtered_files if "megadetector" not in f]
 
-    # Include raw files for megadetector
-    md_raw_files = glob.glob(os.path.join(RESULTS_DIR, "megadetector", "*_raw.json"))
+    md_test_file = os.path.join(
+        RESULTS_DIR, "megadetector", "cycle_0_pretrained_test_full_seq_filtered.json"
+    )
+    md_val_file = os.path.join(RESULTS_DIR, "megadetector", "val_full_filtered.json")
+    md_files = [f for f in [md_test_file, md_val_file] if os.path.exists(f)]
 
-    all_files_to_eval = filtered_files + md_raw_files
+    all_files_to_eval = filtered_files + md_files
 
     for f_path in tqdm(all_files_to_eval, desc="Evaluating models"):
         parts = f_path.split(os.sep)
         model_name = parts[-2]
         file_name = parts[-1]
 
-        # parse file name: {dataset}_{cycle}_filtered.json
-        # Handle megadetector differently: test_full_raw.json
         if "megadetector" in model_name:
             if "test_full" in file_name:
                 dataset_name = "test_full"
@@ -301,11 +299,25 @@ def main():
         det_metrics_50_95, det_metrics_50 = calculate_detection_metrics(gt_dict, preds)
 
         mAP50 = det_metrics_50["map"].item() if "map" in det_metrics_50 else 0.0
-        mAP50_95 = det_metrics_50_95["map"].item() if "map" in det_metrics_50_95 else 0.0
+        mAP50_95 = (
+            det_metrics_50_95["map"].item() if "map" in det_metrics_50_95 else 0.0
+        )
 
-        # Class APs
-        classes_ap50 = det_metrics_50.get("map_per_class", torch.tensor([]))
-        classes_ap50_95 = det_metrics_50_95.get("map_per_class", torch.tensor([]))
+        # Class APs — use the 'classes' tensor returned by torchmetrics to build a
+        # label-id → AP lookup, avoiding index-shift errors when a class is absent.
+        map_per_class_50 = det_metrics_50.get("map_per_class", torch.tensor([]))
+        map_per_class_50_95 = det_metrics_50_95.get("map_per_class", torch.tensor([]))
+        class_ids_50 = det_metrics_50.get("classes", torch.tensor([]))
+        class_ids_50_95 = det_metrics_50_95.get("classes", torch.tensor([]))
+
+        ap50_by_cls = {
+            cls_id.item(): ap.item()
+            for cls_id, ap in zip(class_ids_50, map_per_class_50)
+        }
+        ap50_95_by_cls = {
+            cls_id.item(): ap.item()
+            for cls_id, ap in zip(class_ids_50_95, map_per_class_50_95)
+        }
 
         row_det = {
             "Model": model_name,
@@ -313,30 +325,17 @@ def main():
             "Dataset": dataset_name,
             "mAP50": mAP50,
             "mAP50-95": mAP50_95,
+            "Other_Amphibian_AP50": ap50_by_cls.get(OTHER_AMPHIBIAN_CLASS_ID, -1),
+            "Other_Amphibian_AP95": ap50_95_by_cls.get(OTHER_AMPHIBIAN_CLASS_ID, -1),
+            "Small_Mammal_AP50": ap50_by_cls.get(SMALL_MAMMAL_CLASS_ID, -1),
+            "Small_Mammal_AP95": ap50_95_by_cls.get(SMALL_MAMMAL_CLASS_ID, -1),
+            "WLT_AP50": ap50_by_cls.get(WLT_CLASS_ID, -1),
+            "WLT_AP95": ap50_95_by_cls.get(WLT_CLASS_ID, -1),
         }
-
-        # Add class APs
-        if classes_ap50.dim() > 0 and len(classes_ap50) >= 3:
-            row_det["Other_Amphibian_AP50"] = classes_ap50[
-                OTHER_AMPHIBIAN_CLASS_ID
-            ].item()
-            row_det["Other_Amphibian_AP95"] = classes_ap50_95[OTHER_AMPHIBIAN_CLASS_ID].item()
-            row_det["Small_Mammal_AP50"] = classes_ap50[SMALL_MAMMAL_CLASS_ID].item()
-            row_det["Small_Mammal_AP95"] = classes_ap50_95[SMALL_MAMMAL_CLASS_ID].item()
-            row_det["WLT_AP50"] = classes_ap50[WLT_CLASS_ID].item()
-            row_det["WLT_AP95"] = classes_ap50_95[WLT_CLASS_ID].item()
-        else:
-            row_det["Other_Amphibian_AP50"] = -1
-            row_det["Other_Amphibian_AP95"] = -1
-            row_det["Small_Mammal_AP50"] = -1
-            row_det["Small_Mammal_AP95"] = -1
-            row_det["WLT_AP50"] = -1
-            row_det["WLT_AP95"] = -1
 
         detection_results.append(row_det)
 
         # 2. Image Level Metrics (Evaluated across the full sequence)
-        # WLT
         y_true_wlt, _ = get_image_level_probs(gt_dict, preds, target_class=WLT_CLASS_ID)
 
         if "megadetector" in model_name:
