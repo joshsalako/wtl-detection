@@ -46,6 +46,7 @@ from torch.utils.data import DataLoader, Dataset
 from pipelines.run_inference_pipeline import (
     ActiveLearningInferenceDataset,
     DEFAULT_NUM_WORKERS,
+    inference_collate_fn,
 )
 
 
@@ -123,15 +124,20 @@ def get_predictions_ultralytics(
         shuffle=False,
         num_workers=DEFAULT_NUM_WORKERS,
         pin_memory=True,
+        collate_fn=inference_collate_fn,
     )
+
+    img_size_arg = 1152 if model_type == "yolo" else 640
 
     for batch_imgs, paths, orig_ws, orig_hs in tqdm(
         dataloader, desc=f"Inference {model_type}"
     ):
-        batch_imgs = batch_imgs.to(DEVICE, non_blocking=True).float() / 255.0
-
         preds = model.predict(
-            source=batch_imgs, device=DEVICE, conf=MIN_CONF_THRESHOLD, verbose=False
+            source=batch_imgs,
+            device=DEVICE,
+            imgsz=img_size_arg,
+            conf=MIN_CONF_THRESHOLD,
+            verbose=False,
         )
         for j, pred in enumerate(preds):
             pred_list = []
@@ -172,23 +178,30 @@ def get_predictions_faster_rcnn(
         shuffle=False,
         num_workers=DEFAULT_NUM_WORKERS,
         pin_memory=True,
+        collate_fn=inference_collate_fn,
     )
 
     for batch_imgs, paths, orig_ws, orig_hs in tqdm(
         dataloader, desc="Inference faster_rcnn"
     ):
-        batch_imgs = batch_imgs.to(DEVICE, non_blocking=True).float() / 255.0
+        if isinstance(batch_imgs, torch.Tensor):
+            batch_imgs = batch_imgs.to(DEVICE, non_blocking=True).float() / 255.0
+        else:
+            batch_imgs = [img.to(DEVICE).float() / 255.0 for img in batch_imgs]
 
         with torch.no_grad():
             outputs = model(batch_imgs)
+
+        if isinstance(batch_imgs, torch.Tensor):
+            new_h, new_w = batch_imgs.shape[2], batch_imgs.shape[3]
+        else:
+            new_h, new_w = batch_imgs[0].shape[1], batch_imgs[0].shape[2]
 
         for j, out in enumerate(outputs):
             pred_list = []
             scores = out["scores"].cpu().numpy()
             labels = out["labels"].cpu().numpy() - 1
             boxes = out["boxes"].cpu().numpy()
-
-            new_h, new_w = batch_imgs.shape[2], batch_imgs.shape[3]
 
             for s, l, b in zip(scores, labels, boxes):
                 if s >= MIN_CONF_THRESHOLD:
@@ -229,14 +242,12 @@ def get_predictions_megadetector(model, img_paths, batch_size=MD_BATCH_SIZE):
         num_workers=DEFAULT_NUM_WORKERS,
         prefetch_factor=2,
         pin_memory=True,
+        collate_fn=inference_collate_fn,
     )
 
-    for batch_imgs, batch_paths, orig_ws, orig_hs in tqdm(
+    for batch_imgs_np, batch_paths, orig_ws, orig_hs in tqdm(
         dataloader, desc="Megadetector Inference"
     ):
-        # Convert PyTorch tensor (B, 3, H, W) back to list of numpy arrays (H, W, 3) for AutoShape
-        batch_imgs_np = [img.permute(1, 2, 0).cpu().numpy() for img in batch_imgs]
-
         preds = model(batch_imgs_np)
 
         for j, pred_tensor in enumerate(preds.xywhn):

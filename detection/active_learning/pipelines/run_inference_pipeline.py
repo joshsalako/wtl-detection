@@ -90,12 +90,20 @@ class ActiveLearningInferenceDataset(Dataset):
                 new_h = math.ceil((orig_h * (640 / orig_w)) / 32.0) * 32
 
         if is_corrupt:
-            return (
-                torch.zeros((3, new_h, new_w), dtype=torch.uint8),
-                str(img_path),
-                orig_w,
-                orig_h,
-            )
+            if self.model_type in ["yolo", "rtdetr", "megadetector"]:
+                return (
+                    np.zeros((new_h, new_w, 3), dtype=np.uint8),
+                    str(img_path),
+                    orig_w,
+                    orig_h,
+                )
+            else:
+                return (
+                    torch.zeros((3, new_h, new_w), dtype=torch.uint8),
+                    str(img_path),
+                    orig_w,
+                    orig_h,
+                )
 
         # Resize before CLAHE to drastically reduce CPU time
         img_resized = cv2.resize(
@@ -112,9 +120,26 @@ class ActiveLearningInferenceDataset(Dataset):
 
         img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
 
+        if self.model_type in ["yolo", "rtdetr", "megadetector"]:
+            return img_rgb, str(img_path), orig_w, orig_h
+
         img_tensor = torch.from_numpy(img_rgb).permute(2, 0, 1)
 
         return img_tensor, str(img_path), orig_w, orig_h
+
+
+def inference_collate_fn(batch):
+    imgs = [item[0] for item in batch]
+    paths = [item[1] for item in batch]
+    orig_ws = [item[2] for item in batch]
+    orig_hs = [item[3] for item in batch]
+
+    if isinstance(imgs[0], torch.Tensor):
+        try:
+            imgs = torch.stack(imgs, dim=0)
+        except Exception:
+            pass
+    return imgs, paths, orig_ws, orig_hs
 
 
 def process_all_images(
@@ -140,6 +165,7 @@ def process_all_images(
         num_workers=DEFAULT_NUM_WORKERS,
         prefetch_factor=2,
         pin_memory=True,
+        collate_fn=inference_collate_fn,
     )
 
     grand_total_boxes = 0
@@ -147,12 +173,12 @@ def process_all_images(
     for batch_imgs, img_paths, orig_ws, orig_hs in tqdm(
         dataloader, desc="Processing Unlabeled Pool"
     ):
-        batch_imgs = batch_imgs.to(device, non_blocking=True).float() / 255.0
-
         if model_type in ["yolo", "rtdetr"]:
+            img_size_arg = 1152 if model_type == "yolo" else 640
+            
             preds = model.predict(
                 source=batch_imgs,
-                imgsz=img_size,
+                imgsz=img_size_arg,
                 device=device,
                 conf=INFERENCE_CONF_THRESHOLD,
                 verbose=False,
@@ -162,8 +188,8 @@ def process_all_images(
 
             for i, pred in enumerate(preds):
                 img_path_str = img_paths[i]
-                orig_w = orig_ws[i].item()
-                orig_h = orig_hs[i].item()
+                orig_w = orig_ws[i]
+                orig_h = orig_hs[i]
                 subfolder_name = Path(img_path_str).parent.name
 
                 if pred.boxes is not None and len(pred.boxes) > 0:
@@ -203,6 +229,11 @@ def process_all_images(
                             grand_total_boxes += 1
 
         elif model_type == "faster_rcnn":
+            if isinstance(batch_imgs, torch.Tensor):
+                batch_imgs = batch_imgs.to(device, non_blocking=True).float() / 255.0
+            else:
+                batch_imgs = [img.to(device).float() / 255.0 for img in batch_imgs]
+
             with torch.no_grad():
                 if device != "cpu":
                     with torch.amp.autocast("cuda"):
@@ -210,14 +241,17 @@ def process_all_images(
                 else:
                     outputs = model(batch_imgs)
 
-            new_h, new_w = batch_imgs.shape[2], batch_imgs.shape[3]
+            if isinstance(batch_imgs, torch.Tensor):
+                new_h, new_w = batch_imgs.shape[2], batch_imgs.shape[3]
+            else:
+                new_h, new_w = batch_imgs[0].shape[1], batch_imgs[0].shape[2]
 
             for out, img_path_str, ow, oh in zip(outputs, img_paths, orig_ws, orig_hs):
                 scores = out["scores"].cpu().numpy()
                 labels = out["labels"].cpu().numpy() - 1
                 boxes = out["boxes"].cpu().numpy()
-                orig_w = ow.item()
-                orig_h = oh.item()
+                orig_w = ow
+                orig_h = oh
                 subfolder_name = Path(img_path_str).parent.name
 
                 for s, l, b in zip(scores, labels, boxes):
