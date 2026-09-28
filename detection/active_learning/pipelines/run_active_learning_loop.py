@@ -28,6 +28,10 @@ from config import (
     PRETRAINED_RTDETR,
     PRETRAINED_FASTER_RCNN,
 )
+try:
+    from .annotation_handoff import AnnotationBatchError, ValidationIssue, load_manifest
+except ImportError:  # Script execution from the pipelines directory.
+    from annotation_handoff import AnnotationBatchError, ValidationIssue, load_manifest
 
 
 def load_state(state_file):
@@ -324,14 +328,73 @@ def main():
                 oracle_csv_path = os.path.join(
                     cycle_dir, f"al_query_candidates_{mode_val}_cycle_{cycle}.csv"
                 )
+                annotation_batch_dir = os.path.join(
+                    DETECTION_DIR,
+                    "active_learning",
+                    "to_annotate",
+                )
+                if args.experiment_name:
+                    annotation_batch_dir = os.path.join(
+                        annotation_batch_dir, args.experiment_name
+                    )
+                annotation_batch_dir = os.path.join(
+                    annotation_batch_dir, f"{m_type}_cycle_{cycle}"
+                )
+                annotation_manifest_path = os.path.join(
+                    annotation_batch_dir, "manifest.json"
+                )
 
                 # Skip entire cycle if oracle candidates already exist
                 if not args.force and os.path.exists(oracle_csv_path):
-                    print(
-                        f"\n[Skip] Entire Cycle {cycle} already completed for {m_type} ({prep_val}, {mode_val})."
-                    )
-                    print(f"       Found candidates at: {oracle_csv_path}")
-                    continue
+                    if not os.path.exists(annotation_manifest_path):
+                        print(
+                            f"\n[Resume] Candidate CSV exists but the annotation manifest is missing: "
+                            f"{annotation_manifest_path}"
+                        )
+                    else:
+                        try:
+                            manifest = load_manifest(annotation_manifest_path)
+                            manifest_issues = []
+                            if (
+                                manifest.model_type != m_type
+                                or manifest.cycle != cycle
+                                or manifest.next_cycle != cycle + 1
+                                or manifest.batch_id != f"{m_type}_cycle_{cycle}"
+                            ):
+                                manifest_issues.append(
+                                    ValidationIssue(
+                                        "cycle_mismatch",
+                                        annotation_manifest_path,
+                                        "Manifest identity does not match the active-learning cycle",
+                                    )
+                                )
+                            for image in manifest.images:
+                                if not os.path.isfile(
+                                    os.path.join(annotation_batch_dir, image.file_name)
+                                ):
+                                    manifest_issues.append(
+                                        ValidationIssue(
+                                            "missing_image",
+                                            annotation_batch_dir,
+                                            f"Exported image is missing: {image.file_name}",
+                                        )
+                                    )
+                            if manifest_issues:
+                                raise AnnotationBatchError(manifest_issues)
+                        except AnnotationBatchError as exc:
+                            print(
+                                "\nError: Existing annotation manifest is invalid; "
+                                "refusing to skip the cycle.",
+                                file=sys.stderr,
+                            )
+                            print(str(exc), file=sys.stderr)
+                            sys.exit(1)
+                        print(
+                            f"\n[Skip] Entire Cycle {cycle} already completed for {m_type} ({prep_val}, {mode_val})."
+                        )
+                        print(f"       Found candidates at: {oracle_csv_path}")
+                        print(f"       Found manifest at: {annotation_manifest_path}")
+                        continue
 
                 # ----------------------------------------------------
                 # PHASE 1: MODEL TRAINING
@@ -497,7 +560,11 @@ def main():
                 # ----------------------------------------------------
                 # PHASE 4: ORACLE QUERY EXPORT
                 # ----------------------------------------------------
-                if not args.force and os.path.exists(oracle_csv_path):
+                if (
+                    not args.force
+                    and os.path.exists(oracle_csv_path)
+                    and os.path.exists(annotation_manifest_path)
+                ):
                     print(
                         f"\n[Skip] Phase 4: Oracle query export already completed. Found candidates at: {oracle_csv_path}"
                     )
@@ -539,10 +606,19 @@ def main():
                         "--model_type",
                         m_type,
                     ]
+                    if args.experiment_name:
+                        gather_cmd.extend(["--experiment_name", args.experiment_name])
                     run_command(
                         gather_cmd,
                         f"{m_type.upper()} Cycle {cycle} Gather Annotations",
                     )
+                    if not os.path.isfile(annotation_manifest_path):
+                        print(
+                            f"Error: Gather completed without creating the expected "
+                            f"annotation manifest at '{annotation_manifest_path}'.",
+                            file=sys.stderr,
+                        )
+                        sys.exit(1)
 
                 # ----------------------------------------------------
                 # PHASE 5: CYCLE INCREMENT & UPDATE STATE
@@ -556,6 +632,7 @@ def main():
                 )
                 print(f"  [ORACLE PAUSE] Exported {representatives_count} queries to:")
                 print(f"                 {oracle_csv_path}")
+                print(f"  [HANDOFF MANIFEST] {annotation_manifest_path}")
                 print("=======================================================\n")
 
 

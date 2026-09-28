@@ -40,7 +40,7 @@ By default, the script enforces the `clahe` and `pretrained` parameters internal
 
 When a cycle completes, the images selected for manual labeling are placed in the `to_annotate/` directory. Once you have annotated these images, you must merge them into the dataset to create the next cycle before running the loop again.
 
-Place your annotated images and YOLO `.txt` labels in an `images` and `labels` subfolder within the `annotated/` directory (e.g., `annotated/yolo_cycle_0/images` and `annotated/yolo_cycle_0/labels`). Then, run the ingestion script:
+Keep the generated `manifest.json` and `classes.txt` with the batch, and place the annotated images and YOLO `.txt` labels in an `images` and `labels` subfolder within the `annotated/` directory (e.g., `annotated/yolo_cycle_0/images` and `annotated/yolo_cycle_0/labels`). The ingestion script validates the manifest, image hashes, class IDs, YOLO rows, and cycle before changing the next dataset:
 
 ```bash
 python pipelines/ingest_annotations.py --annotated_dir annotated/yolo_cycle_0

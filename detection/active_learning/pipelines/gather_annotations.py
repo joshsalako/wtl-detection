@@ -1,17 +1,23 @@
 #!/usr/bin/env python3
 import os
 import sys
-import csv
-import shutil
 import argparse
 import pandas as pd
-from pathlib import Path
 
 # Add active_learning to path
 PIPELINES_DIR = os.path.dirname(os.path.abspath(__file__))
 ACTIVE_LEARNING_DIR = os.path.dirname(PIPELINES_DIR)
 if ACTIVE_LEARNING_DIR not in sys.path:
     sys.path.append(ACTIVE_LEARNING_DIR)
+
+try:
+    from ..central_config import CLASSES
+except ImportError:  # Script execution from the pipelines directory.
+    from central_config import CLASSES
+try:
+    from .annotation_handoff import AnnotationBatchError, export_annotation_batch
+except ImportError:  # Script execution from the pipelines directory.
+    from annotation_handoff import AnnotationBatchError, export_annotation_batch
 
 
 def main():
@@ -33,6 +39,12 @@ def main():
         required=True,
         help="Model type (yolo, rtdetr, faster_rcnn)",
     )
+    parser.add_argument(
+        "--experiment_name",
+        type=str,
+        default=None,
+        help="Optional experiment name used to isolate annotation batches.",
+    )
 
     args = parser.parse_args()
 
@@ -45,53 +57,50 @@ def main():
         print("No candidates to gather.")
         return
 
-    # Define output directory
-    output_dir = os.path.join(
-        ACTIVE_LEARNING_DIR, "to_annotate", f"{args.model_type}_cycle_{args.cycle}"
-    )
-    os.makedirs(output_dir, exist_ok=True)
+    # Define output directory. The default path remains unchanged.
+    output_dir = os.path.join(ACTIVE_LEARNING_DIR, "to_annotate")
+    if args.experiment_name:
+        output_dir = os.path.join(output_dir, args.experiment_name)
+    output_dir = os.path.join(output_dir, f"{args.model_type}_cycle_{args.cycle}")
 
-    # Tracker for already sampled images
-    sampled_tracker_csv = os.path.join(ACTIVE_LEARNING_DIR, "already_sampled.csv")
-
-    gathered_count = 0
-    new_sampled_records = []
-
-    for idx, row in df.iterrows():
-        img_path_str = row["image_path"]
-        img_path = Path(img_path_str)
-
-        if not img_path.exists():
-            print(f"Warning: Source image not found: {img_path_str}")
-            continue
-
-        base_name = img_path.name
-        dest_path = os.path.join(output_dir, base_name)
-
-        # Handle duplicate file names
-        counter = 1
-        while os.path.exists(dest_path):
-            name, ext = os.path.splitext(base_name)
-            dest_path = os.path.join(output_dir, f"{name}_{counter}{ext}")
-            counter += 1
-
-        shutil.copy2(img_path, dest_path)
-        gathered_count += 1
-        new_sampled_records.append(
-            {
-                "image_path": img_path_str,
-                "cycle": args.cycle,
-                "model_type": args.model_type,
-            }
+    candidates = df.to_dict("records")
+    try:
+        manifest = export_annotation_batch(
+            candidates,
+            output_dir,
+            model_type=args.model_type,
+            cycle=args.cycle,
+            classes=CLASSES,
+            candidates_csv=args.candidates_csv,
         )
+    except AnnotationBatchError as exc:
+        print("\nAnnotation batch export failed:", file=sys.stderr)
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
-    print(f"\nSuccessfully gathered {gathered_count} images to: {output_dir}")
+    # Tracker for already sampled images. Preserve the existing three columns.
+    sampled_tracker_csv = os.path.join(ACTIVE_LEARNING_DIR, "already_sampled.csv")
+    new_sampled_records = [
+        {
+            "image_path": image.source_path,
+            "cycle": args.cycle,
+            "model_type": args.model_type,
+        }
+        for image in manifest.images
+    ]
+
+    print(
+        f"\nSuccessfully gathered {len(manifest.images)} images to: {output_dir}"
+    )
+    print(f"Wrote annotation manifest to: {os.path.join(output_dir, 'manifest.json')}")
 
     # Append to already_sampled.csv
-    tracker_df = pd.DataFrame(new_sampled_records)
-    if os.path.exists(sampled_tracker_csv):
+    tracker_df = pd.DataFrame(
+        new_sampled_records, columns=["image_path", "cycle", "model_type"]
+    )
+    if os.path.exists(sampled_tracker_csv) and not tracker_df.empty:
         tracker_df.to_csv(sampled_tracker_csv, mode="a", header=False, index=False)
-    else:
+    elif not os.path.exists(sampled_tracker_csv):
         tracker_df.to_csv(sampled_tracker_csv, index=False)
 
     print(f"Updated tracking list at: {sampled_tracker_csv}")
