@@ -89,9 +89,7 @@ def main():
         for image in manifest.images
     ]
 
-    print(
-        f"\nSuccessfully gathered {len(manifest.images)} images to: {output_dir}"
-    )
+    print(f"\nSuccessfully gathered {len(manifest.images)} images to: {output_dir}")
     print(f"Wrote annotation manifest to: {os.path.join(output_dir, 'manifest.json')}")
 
     # Append to already_sampled.csv

@@ -233,13 +233,7 @@ def run_test_inference(model, test_dir, device, xi=0.5, max_images=200):
     return avg_difficulties
 
 
-def compute_shannon_entropy(conf, num_classes):
-    """Computes Shannon entropy for top-1 class confidence score."""
-    if num_classes <= 1:
-        return 0.0
-    p = np.clip(conf, 1e-6, 1.0 - 1e-6)
-    p_other = np.clip((1.0 - p) / (num_classes - 1), 1e-6, 1.0 - 1e-6)
-    return -p * np.log(p) - (num_classes - 1) * p_other * np.log(p_other)
+from class_probabilities import compute_class_entropy, require_probability_csv
 
 
 def main():
@@ -287,6 +281,7 @@ def main():
     args = parser.parse_args()
 
     # Load predictions
+    require_probability_csv(args.predictions_csv)
     print(f"DCUS: Loading predictions from {args.predictions_csv}")
     df = pd.read_csv(args.predictions_csv)
 
@@ -370,10 +365,13 @@ def main():
                 )
 
     # 2. Compute entropy for each prediction box
-    print("DCUS: Computing object-level Shannon entropy...")
-    df["entropy"] = df["confidence"].apply(
-        lambda p: compute_shannon_entropy(p, num_classes)
-    )
+    print("DCUS: Computing entropy from full class probability vectors...")
+    df["entropy"] = [
+        compute_class_entropy(probabilities, kind, num_classes)
+        for probabilities, kind in zip(
+            df["class_probabilities"], df["probability_kind"]
+        )
+    ]
 
     # 3. Apply difficulty coefficients
     df["difficulty_coeff"] = df["class_name"].map(difficulty_weights).fillna(2.0)

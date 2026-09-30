@@ -160,10 +160,14 @@ def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
         raise
 
 
-def _safe_manifest(value: Mapping[str, Any], manifest_path: Path) -> AnnotationBatchManifest:
+def _safe_manifest(
+    value: Mapping[str, Any], manifest_path: Path
+) -> AnnotationBatchManifest:
     issues: list[ValidationIssue] = []
     if value.get("format") != MANIFEST_FORMAT:
-        issues.append(_issue("manifest_invalid", manifest_path, "Unsupported manifest format"))
+        issues.append(
+            _issue("manifest_invalid", manifest_path, "Unsupported manifest format")
+        )
     if value.get("schema_version") != MANIFEST_SCHEMA_VERSION:
         issues.append(
             _issue(
@@ -176,34 +180,56 @@ def _safe_manifest(value: Mapping[str, Any], manifest_path: Path) -> AnnotationB
     if not isinstance(classes_value, list) or any(
         not isinstance(item, str) or not item.strip() for item in classes_value
     ):
-        issues.append(_issue("manifest_invalid", manifest_path, "Manifest classes must be non-empty strings"))
+        issues.append(
+            _issue(
+                "manifest_invalid",
+                manifest_path,
+                "Manifest classes must be non-empty strings",
+            )
+        )
         classes: tuple[str, ...] = ()
     else:
         classes = tuple(item.strip() for item in classes_value)
         if len(classes) != len(set(classes)):
-            issues.append(_issue("manifest_invalid", manifest_path, "Manifest classes must be unique"))
+            issues.append(
+                _issue(
+                    "manifest_invalid", manifest_path, "Manifest classes must be unique"
+                )
+            )
 
     images_value = value.get("images")
     if not isinstance(images_value, list):
-        issues.append(_issue("manifest_invalid", manifest_path, "Manifest images must be a list"))
+        issues.append(
+            _issue("manifest_invalid", manifest_path, "Manifest images must be a list")
+        )
         images: tuple[AnnotationImage, ...] = ()
     else:
         parsed_images: list[AnnotationImage] = []
         for index, item in enumerate(images_value):
             if not isinstance(item, Mapping):
                 issues.append(
-                    _issue("manifest_invalid", f"{manifest_path}:images[{index}]", "Image record must be an object")
+                    _issue(
+                        "manifest_invalid",
+                        f"{manifest_path}:images[{index}]",
+                        "Image record must be an object",
+                    )
                 )
                 continue
             try:
-                parsed_images.append(AnnotationImage.from_dict(item, f"{manifest_path}:images[{index}]"))
+                parsed_images.append(
+                    AnnotationImage.from_dict(item, f"{manifest_path}:images[{index}]")
+                )
             except AnnotationBatchError as exc:
                 issues.extend(exc.issues)
         images = tuple(parsed_images)
 
     source_provenance = value.get("source_provenance", {})
     if not isinstance(source_provenance, dict):
-        issues.append(_issue("manifest_invalid", manifest_path, "source_provenance must be an object"))
+        issues.append(
+            _issue(
+                "manifest_invalid", manifest_path, "source_provenance must be an object"
+            )
+        )
         source_provenance = {}
 
     try:
@@ -212,7 +238,13 @@ def _safe_manifest(value: Mapping[str, Any], manifest_path: Path) -> AnnotationB
         cycle = int(value["cycle"])
         next_cycle = int(value["next_cycle"])
     except (KeyError, TypeError, ValueError):
-        issues.append(_issue("manifest_invalid", manifest_path, "Manifest identity fields are malformed"))
+        issues.append(
+            _issue(
+                "manifest_invalid",
+                manifest_path,
+                "Manifest identity fields are malformed",
+            )
+        )
         batch_id = ""
         model_type = ""
         cycle = -1
@@ -244,11 +276,21 @@ def load_manifest(batch_dir_or_manifest: str | Path) -> AnnotationBatchManifest:
         ) from exc
     except (OSError, json.JSONDecodeError) as exc:
         raise AnnotationBatchError(
-            [_issue("manifest_invalid", manifest_path, "manifest.json is not valid JSON")]
+            [
+                _issue(
+                    "manifest_invalid", manifest_path, "manifest.json is not valid JSON"
+                )
+            ]
         ) from exc
     if not isinstance(value, dict):
         raise AnnotationBatchError(
-            [_issue("manifest_invalid", manifest_path, "manifest.json must contain an object")]
+            [
+                _issue(
+                    "manifest_invalid",
+                    manifest_path,
+                    "manifest.json must contain an object",
+                )
+            ]
         )
     return _safe_manifest(value, manifest_path)
 
@@ -287,40 +329,65 @@ def export_annotation_batch(
     clean_classes = tuple(str(value).strip() for value in classes)
     issues: list[ValidationIssue] = []
     if not clean_classes or any(not value for value in clean_classes):
-        issues.append(_issue("class_schema_mismatch", destination, "Classes must be non-empty"))
+        issues.append(
+            _issue("class_schema_mismatch", destination, "Classes must be non-empty")
+        )
     if len(clean_classes) != len(set(clean_classes)):
-        issues.append(_issue("class_schema_mismatch", destination, "Classes must be unique"))
+        issues.append(
+            _issue("class_schema_mismatch", destination, "Classes must be unique")
+        )
     if cycle < 0:
-        issues.append(_issue("cycle_mismatch", destination, "Cycle must be non-negative"))
+        issues.append(
+            _issue("cycle_mismatch", destination, "Cycle must be non-negative")
+        )
 
     source_paths: list[Path] = []
     seen_sources: set[Path] = set()
     for index, candidate in enumerate(candidates):
         value = candidate.get("image_path")
         if not isinstance(value, str) or not value.strip():
-            issues.append(_issue("invalid_candidate", f"candidate[{index}]", "image_path is required"))
+            issues.append(
+                _issue(
+                    "invalid_candidate", f"candidate[{index}]", "image_path is required"
+                )
+            )
             continue
         source = Path(value).expanduser().resolve()
         if source in seen_sources:
-            issues.append(_issue("duplicate_source", source, "Candidate source is repeated"))
+            issues.append(
+                _issue("duplicate_source", source, "Candidate source is repeated")
+            )
         seen_sources.add(source)
         source_paths.append(source)
 
     missing = [path for path in source_paths if not path.is_file()]
-    issues.extend(_issue("missing_source", path, "Source image does not exist") for path in missing)
+    issues.extend(
+        _issue("missing_source", path, "Source image does not exist")
+        for path in missing
+    )
     source_paths = [path for path in source_paths if path.is_file()]
     if not source_paths:
-        issues.append(_issue("empty_batch", destination, "No source images were exported"))
+        issues.append(
+            _issue("empty_batch", destination, "No source images were exported")
+        )
 
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
-        issues.append(_issue("output_error", destination, f"Cannot create output parent: {exc}"))
+        issues.append(
+            _issue("output_error", destination, f"Cannot create output parent: {exc}")
+        )
 
     for source in source_paths:
         try:
             if destination == source or source.is_relative_to(destination):
-                issues.append(_issue("source_collision", source, "Output directory overlaps a source image"))
+                issues.append(
+                    _issue(
+                        "source_collision",
+                        source,
+                        "Output directory overlaps a source image",
+                    )
+                )
         except ValueError:
             pass
 
@@ -355,7 +422,9 @@ def export_annotation_batch(
     except AnnotationBatchError:
         raise
     except (OSError, ValueError) as exc:
-        raise AnnotationBatchError([_issue("source_unreadable", source_paths[0], str(exc))]) from exc
+        raise AnnotationBatchError(
+            [_issue("source_unreadable", source_paths[0], str(exc))]
+        ) from exc
     if issues:
         raise AnnotationBatchError(issues)
 
@@ -413,10 +482,18 @@ def export_annotation_batch(
         for image in existing.images:
             exported = destination / image.file_name
             if not exported.is_file():
-                existing_issues.append(_issue("existing_output", exported, "Existing export image is missing"))
+                existing_issues.append(
+                    _issue(
+                        "existing_output", exported, "Existing export image is missing"
+                    )
+                )
                 continue
             if sha256_file(exported) != image.sha256:
-                existing_issues.append(_issue("existing_output", exported, "Existing export image has changed"))
+                existing_issues.append(
+                    _issue(
+                        "existing_output", exported, "Existing export image has changed"
+                    )
+                )
         if existing_issues:
             raise AnnotationBatchError(existing_issues)
         return existing
@@ -437,14 +514,24 @@ def export_annotation_batch(
             temporary = None
     except FileExistsError as exc:
         raise AnnotationBatchError(
-            [_issue("existing_output", destination, "Batch output was created concurrently")]
+            [
+                _issue(
+                    "existing_output",
+                    destination,
+                    "Batch output was created concurrently",
+                )
+            ]
         ) from exc
     except OSError as exc:
-        raise AnnotationBatchError([_issue("output_error", destination, str(exc))]) from exc
+        raise AnnotationBatchError(
+            [_issue("output_error", destination, str(exc))]
+        ) from exc
     return manifest
 
 
-def _label_values(line: str, label_path: Path, line_number: int) -> tuple[int, list[float]]:
+def _label_values(
+    line: str, label_path: Path, line_number: int
+) -> tuple[int, list[float]]:
     parts = line.split()
     if len(parts) != 5:
         raise ValueError(f"Expected five fields at line {line_number}")
@@ -475,22 +562,62 @@ def validate_annotation_batch(
     manifest_path = batch / MANIFEST_FILENAME
 
     if manifest.model_type != expected_model_type:
-        issues.append(_issue("model_mismatch", manifest_path, "Manifest model_type does not match the batch directory"))
+        issues.append(
+            _issue(
+                "model_mismatch",
+                manifest_path,
+                "Manifest model_type does not match the batch directory",
+            )
+        )
     if manifest.batch_id != f"{expected_model_type}_cycle_{expected_cycle}":
-        issues.append(_issue("cycle_mismatch", manifest_path, "Manifest batch_id does not match the batch directory"))
+        issues.append(
+            _issue(
+                "cycle_mismatch",
+                manifest_path,
+                "Manifest batch_id does not match the batch directory",
+            )
+        )
     if manifest.cycle != expected_cycle or manifest.next_cycle != expected_cycle + 1:
-        issues.append(_issue("cycle_mismatch", manifest_path, "Manifest cycle and next_cycle do not match ingestion"))
+        issues.append(
+            _issue(
+                "cycle_mismatch",
+                manifest_path,
+                "Manifest cycle and next_cycle do not match ingestion",
+            )
+        )
     if expected_state_cycle is not None and expected_state_cycle != manifest.next_cycle:
-        issues.append(_issue("cycle_mismatch", manifest_path, "State file cycle does not match manifest next_cycle"))
+        issues.append(
+            _issue(
+                "cycle_mismatch",
+                manifest_path,
+                "State file cycle does not match manifest next_cycle",
+            )
+        )
     if manifest.classes != classes:
-        issues.append(_issue("class_schema_mismatch", manifest_path, "Manifest classes do not match the current dataset"))
+        issues.append(
+            _issue(
+                "class_schema_mismatch",
+                manifest_path,
+                "Manifest classes do not match the current dataset",
+            )
+        )
 
     provenance = manifest.source_provenance
     if provenance.get("requested_count") != provenance.get("exported_count"):
-        issues.append(_issue("missing_source", manifest_path, "Manifest records an incomplete export"))
+        issues.append(
+            _issue(
+                "missing_source", manifest_path, "Manifest records an incomplete export"
+            )
+        )
     missing_sources = provenance.get("missing_sources", [])
     if isinstance(missing_sources, list) and missing_sources:
-        issues.append(_issue("missing_source", manifest_path, "Manifest records missing source images"))
+        issues.append(
+            _issue(
+                "missing_source",
+                manifest_path,
+                "Manifest records missing source images",
+            )
+        )
 
     manifest_names: list[str] = []
     manifest_hashes: set[str] = set()
@@ -498,46 +625,118 @@ def validate_annotation_batch(
     label_names: set[str] = set()
     for image in manifest.images:
         image_name = Path(image.file_name)
-        if image_name.name != image.file_name or image_name.is_absolute() or ".." in image_name.parts:
-            issues.append(_issue("manifest_invalid", manifest_path, f"Unsafe image filename: {image.file_name!r}"))
+        if (
+            image_name.name != image.file_name
+            or image_name.is_absolute()
+            or ".." in image_name.parts
+        ):
+            issues.append(
+                _issue(
+                    "manifest_invalid",
+                    manifest_path,
+                    f"Unsafe image filename: {image.file_name!r}",
+                )
+            )
             continue
         if image.file_name in manifest_names:
-            issues.append(_issue("duplicate_name", manifest_path, f"Duplicate image filename: {image.file_name}"))
+            issues.append(
+                _issue(
+                    "duplicate_name",
+                    manifest_path,
+                    f"Duplicate image filename: {image.file_name}",
+                )
+            )
         manifest_names.append(image.file_name)
         if image.sha256 in manifest_hashes:
-            issues.append(_issue("duplicate_content", manifest_path, f"Duplicate image hash: {image.file_name}"))
+            issues.append(
+                _issue(
+                    "duplicate_content",
+                    manifest_path,
+                    f"Duplicate image hash: {image.file_name}",
+                )
+            )
         manifest_hashes.add(image.sha256)
         if image.source_path in manifest_sources:
-            issues.append(_issue("duplicate_source", manifest_path, f"Duplicate source path: {image.source_path}"))
+            issues.append(
+                _issue(
+                    "duplicate_source",
+                    manifest_path,
+                    f"Duplicate source path: {image.source_path}",
+                )
+            )
         manifest_sources.add(image.source_path)
         if not _SHA256_RE.fullmatch(image.sha256):
-            issues.append(_issue("manifest_invalid", manifest_path, f"Invalid image hash: {image.file_name}"))
+            issues.append(
+                _issue(
+                    "manifest_invalid",
+                    manifest_path,
+                    f"Invalid image hash: {image.file_name}",
+                )
+            )
         if image.width <= 0 or image.height <= 0:
-            issues.append(_issue("manifest_invalid", manifest_path, f"Invalid image dimensions: {image.file_name}"))
+            issues.append(
+                _issue(
+                    "manifest_invalid",
+                    manifest_path,
+                    f"Invalid image dimensions: {image.file_name}",
+                )
+            )
         label_name = f"{Path(image.file_name).stem}.txt"
         if label_name in label_names:
-            issues.append(_issue("duplicate_name", manifest_path, f"Duplicate derived label filename: {label_name}"))
+            issues.append(
+                _issue(
+                    "duplicate_name",
+                    manifest_path,
+                    f"Duplicate derived label filename: {label_name}",
+                )
+            )
         label_names.add(label_name)
 
     images_dir = batch / "images"
     labels_dir = batch / "labels"
-    actual_images = {
-        path.name
-        for path in images_dir.iterdir()
-        if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
-    } if images_dir.is_dir() else set()
-    actual_labels = {
-        path.name for path in labels_dir.iterdir() if path.is_file() and path.suffix.lower() == ".txt"
-    } if labels_dir.is_dir() else set()
+    actual_images = (
+        {
+            path.name
+            for path in images_dir.iterdir()
+            if path.is_file() and path.suffix.lower() in IMAGE_EXTENSIONS
+        }
+        if images_dir.is_dir()
+        else set()
+    )
+    actual_labels = (
+        {
+            path.name
+            for path in labels_dir.iterdir()
+            if path.is_file() and path.suffix.lower() == ".txt"
+        }
+        if labels_dir.is_dir()
+        else set()
+    )
 
     for file_name in sorted(set(manifest_names) - actual_images):
-        issues.append(_issue("missing_image", images_dir / file_name, "Manifest image is missing"))
+        issues.append(
+            _issue("missing_image", images_dir / file_name, "Manifest image is missing")
+        )
     for file_name in sorted(actual_images - set(manifest_names)):
-        issues.append(_issue("unexpected_image", images_dir / file_name, "Image is not listed in manifest"))
+        issues.append(
+            _issue(
+                "unexpected_image",
+                images_dir / file_name,
+                "Image is not listed in manifest",
+            )
+        )
     for file_name in sorted(label_names - actual_labels):
-        issues.append(_issue("missing_label", labels_dir / file_name, "Label file is missing"))
+        issues.append(
+            _issue("missing_label", labels_dir / file_name, "Label file is missing")
+        )
     for file_name in sorted(actual_labels - label_names):
-        issues.append(_issue("unexpected_label", labels_dir / file_name, "Label file is not associated with a manifest image"))
+        issues.append(
+            _issue(
+                "unexpected_label",
+                labels_dir / file_name,
+                "Label file is not associated with a manifest image",
+            )
+        )
 
     actual_hashes: dict[str, str] = {}
     for image in manifest.images:
@@ -548,12 +747,30 @@ def validate_annotation_batch(
             actual_hash = sha256_file(image_path)
             actual_hashes[image.file_name] = actual_hash
             if actual_hash != image.sha256:
-                issues.append(_issue("image_hash_mismatch", image_path, "Image bytes differ from export manifest"))
+                issues.append(
+                    _issue(
+                        "image_hash_mismatch",
+                        image_path,
+                        "Image bytes differ from export manifest",
+                    )
+                )
             if list(actual_hashes.values()).count(actual_hash) > 1:
-                issues.append(_issue("duplicate_content", image_path, "Image content is duplicated in the batch"))
+                issues.append(
+                    _issue(
+                        "duplicate_content",
+                        image_path,
+                        "Image content is duplicated in the batch",
+                    )
+                )
             dimensions = _image_dimensions(image_path)
             if dimensions != (image.width, image.height):
-                issues.append(_issue("image_dimensions_mismatch", image_path, "Image dimensions differ from manifest"))
+                issues.append(
+                    _issue(
+                        "image_dimensions_mismatch",
+                        image_path,
+                        "Image dimensions differ from manifest",
+                    )
+                )
         except AnnotationBatchError as exc:
             issues.extend(exc.issues)
 
@@ -564,7 +781,11 @@ def validate_annotation_batch(
         try:
             label_lines = label_path.read_text(encoding="utf-8").splitlines()
         except (OSError, UnicodeDecodeError) as exc:
-            issues.append(_issue("malformed_label", label_path, f"Label file cannot be read: {exc}"))
+            issues.append(
+                _issue(
+                    "malformed_label", label_path, f"Label file cannot be read: {exc}"
+                )
+            )
             continue
         for line_number, raw_line in enumerate(label_lines, start=1):
             if not raw_line.strip():
@@ -572,20 +793,44 @@ def validate_annotation_batch(
             try:
                 class_id, values = _label_values(raw_line, label_path, line_number)
             except (OSError, UnicodeDecodeError, ValueError) as exc:
-                issues.append(_issue("malformed_label", f"{label_path}:{line_number}", str(exc)))
+                issues.append(
+                    _issue("malformed_label", f"{label_path}:{line_number}", str(exc))
+                )
                 continue
             if class_id < 0 or class_id >= len(classes):
-                issues.append(_issue("unknown_class", f"{label_path}:{line_number}", f"Unknown YOLO class id: {class_id}"))
+                issues.append(
+                    _issue(
+                        "unknown_class",
+                        f"{label_path}:{line_number}",
+                        f"Unknown YOLO class id: {class_id}",
+                    )
+                )
             center_x, center_y, width, height = values
-            if width <= 0 or height <= 0 or any(value < 0 or value > 1 for value in values):
-                issues.append(_issue("malformed_label", f"{label_path}:{line_number}", "YOLO coordinates must be normalized and positive"))
+            if (
+                width <= 0
+                or height <= 0
+                or any(value < 0 or value > 1 for value in values)
+            ):
+                issues.append(
+                    _issue(
+                        "malformed_label",
+                        f"{label_path}:{line_number}",
+                        "YOLO coordinates must be normalized and positive",
+                    )
+                )
             if (
                 center_x - width / 2 < 0
                 or center_y - height / 2 < 0
                 or center_x + width / 2 > 1
                 or center_y + height / 2 > 1
             ):
-                issues.append(_issue("malformed_label", f"{label_path}:{line_number}", "YOLO bounding box exceeds image bounds"))
+                issues.append(
+                    _issue(
+                        "malformed_label",
+                        f"{label_path}:{line_number}",
+                        "YOLO bounding box exceeds image bounds",
+                    )
+                )
 
     if issues:
         raise AnnotationBatchError(issues)

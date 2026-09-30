@@ -14,7 +14,9 @@ from detection.active_learning.pipelines.annotation_handoff import (
     validate_annotation_batch,
 )
 from detection.active_learning.pipelines import gather_annotations
-from detection.active_learning.pipelines.ingest_annotations import ingest_annotation_batch
+from detection.active_learning.pipelines.ingest_annotations import (
+    ingest_annotation_batch,
+)
 
 
 CLASSES = ["Other_Amphibian", "Small_Mammal", "Western_Leopard_Toad"]
@@ -69,7 +71,9 @@ class AnnotationHandoffTests(unittest.TestCase):
         dataset = active / "data" / "yolo_clahe" / "pretrained" / "cycle_0" / "train"
         (dataset / "images").mkdir(parents=True)
         (dataset / "labels").mkdir()
-        (dataset / "classes.txt").write_text("\n".join(CLASSES) + "\n", encoding="utf-8")
+        (dataset / "classes.txt").write_text(
+            "\n".join(CLASSES) + "\n", encoding="utf-8"
+        )
         (dataset / "images" / "base.jpg").write_bytes(b"original")
         (dataset / "labels" / "base.txt").write_text("", encoding="utf-8")
         state_dir = active / "pipelines"
@@ -99,9 +103,7 @@ class AnnotationHandoffTests(unittest.TestCase):
         self.assertEqual(source.read_bytes(), original)
         self.assertTrue((output / "manifest.json").is_file())
         self.assertEqual(
-            json.loads((output / "manifest.json").read_text())[
-                "format"
-            ],
+            json.loads((output / "manifest.json").read_text())["format"],
             "amphilens-active-learning-yolo-v1",
         )
 
@@ -124,7 +126,7 @@ class AnnotationHandoffTests(unittest.TestCase):
         source = self._image("cli.jpg")
         candidates = self.root / "candidates.csv"
         candidates.write_text(
-            "image_path,image_name\n" f"{source},{source.name}\n", encoding="utf-8"
+            f"image_path,image_name\n{source},{source.name}\n", encoding="utf-8"
         )
         active = self.root / "active_learning"
         original_root = gather_annotations.ACTIVE_LEARNING_DIR
@@ -149,7 +151,9 @@ class AnnotationHandoffTests(unittest.TestCase):
         self.assertTrue((output / "manifest.json").is_file())
         self.assertTrue((output / "classes.txt").is_file())
         self.assertEqual(
-            (active / "already_sampled.csv").read_text(encoding="utf-8").splitlines()[0],
+            (active / "already_sampled.csv")
+            .read_text(encoding="utf-8")
+            .splitlines()[0],
             "image_path,cycle,model_type",
         )
 
@@ -184,7 +188,9 @@ class AnnotationHandoffTests(unittest.TestCase):
                 expected_state_cycle=1,
             )
 
-        self.assertIn("missing_image", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "missing_image", {issue.code for issue in raised.exception.issues}
+        )
 
     def test_unknown_class_and_malformed_yolo_are_reported(self):
         source = self._image("bad.jpg")
@@ -207,9 +213,9 @@ class AnnotationHandoffTests(unittest.TestCase):
         codes = {issue.code for issue in raised.exception.issues}
         self.assertIn("malformed_label", codes)
 
-        (batch / "labels" / f"{Path(manifest.images[0].file_name).stem}.txt").write_text(
-            "9 0.5 0.5 0.25 0.25\n", encoding="utf-8"
-        )
+        (
+            batch / "labels" / f"{Path(manifest.images[0].file_name).stem}.txt"
+        ).write_text("9 0.5 0.5 0.25 0.25\n", encoding="utf-8")
         with self.assertRaises(AnnotationBatchError) as raised:
             validate_annotation_batch(
                 batch,
@@ -218,7 +224,9 @@ class AnnotationHandoffTests(unittest.TestCase):
                 expected_classes=CLASSES,
                 expected_state_cycle=1,
             )
-        self.assertIn("unknown_class", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "unknown_class", {issue.code for issue in raised.exception.issues}
+        )
 
     def test_duplicate_content_is_rejected(self):
         first = self._image("first.jpg", value=100)
@@ -228,7 +236,9 @@ class AnnotationHandoffTests(unittest.TestCase):
         with self.assertRaises(AnnotationBatchError) as raised:
             self._export([first, second])
 
-        self.assertIn("duplicate_content", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "duplicate_content", {issue.code for issue in raised.exception.issues}
+        )
 
     def test_validator_rejects_duplicate_content_in_manifest(self):
         first = self._image("first-valid.jpg", value=100)
@@ -238,7 +248,10 @@ class AnnotationHandoffTests(unittest.TestCase):
         manifest_path = batch / "manifest.json"
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         payload["images"][1]["sha256"] = payload["images"][0]["sha256"]
-        shutil.copy2(batch / "images" / manifest.images[0].file_name, batch / "images" / manifest.images[1].file_name)
+        shutil.copy2(
+            batch / "images" / manifest.images[0].file_name,
+            batch / "images" / manifest.images[1].file_name,
+        )
         manifest_path.write_text(json.dumps(payload), encoding="utf-8")
 
         with self.assertRaises(AnnotationBatchError) as raised:
@@ -250,7 +263,9 @@ class AnnotationHandoffTests(unittest.TestCase):
                 expected_state_cycle=1,
             )
 
-        self.assertIn("duplicate_content", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "duplicate_content", {issue.code for issue in raised.exception.issues}
+        )
 
     def test_cycle_mismatch_is_rejected(self):
         source = self._image("cycle.jpg")
@@ -270,14 +285,18 @@ class AnnotationHandoffTests(unittest.TestCase):
                 expected_state_cycle=1,
             )
 
-        self.assertIn("cycle_mismatch", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "cycle_mismatch", {issue.code for issue in raised.exception.issues}
+        )
 
     def test_missing_and_extra_labels_are_rejected(self):
         first = self._image("first-label.jpg")
         second = self._image("second-label.jpg", value=120)
         output, manifest = self._export([first, second])
         batch = self._annotated_batch(output, manifest)
-        first_label = batch / "labels" / f"{Path(manifest.images[0].file_name).stem}.txt"
+        first_label = (
+            batch / "labels" / f"{Path(manifest.images[0].file_name).stem}.txt"
+        )
         first_label.unlink()
         (batch / "labels" / "untracked.txt").write_text("", encoding="utf-8")
 
@@ -302,9 +321,13 @@ class AnnotationHandoffTests(unittest.TestCase):
 
         destination = ingest_annotation_batch(batch, active_learning_dir=active)
 
-        self.assertTrue((destination / "train" / "images" / manifest.images[0].file_name).is_file())
+        self.assertTrue(
+            (destination / "train" / "images" / manifest.images[0].file_name).is_file()
+        )
         self.assertTrue((destination / "train" / "labels" / "ingest.txt").is_file())
-        self.assertTrue((active / "data" / "yolo_clahe" / "pretrained" / "cycle_0").is_dir())
+        self.assertTrue(
+            (active / "data" / "yolo_clahe" / "pretrained" / "cycle_0").is_dir()
+        )
 
     def test_invalid_batch_does_not_create_next_dataset(self):
         active = self._dataset_root()
@@ -336,7 +359,9 @@ class AnnotationHandoffTests(unittest.TestCase):
                 classes=CLASSES,
             )
 
-        self.assertIn("missing_source", {issue.code for issue in raised.exception.issues})
+        self.assertIn(
+            "missing_source", {issue.code for issue in raised.exception.issues}
+        )
         self.assertFalse(output.exists())
 
 

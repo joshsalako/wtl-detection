@@ -4,6 +4,7 @@ import sys
 import math
 import cv2
 import csv
+import json
 import argparse
 from pathlib import Path
 import torch
@@ -40,6 +41,11 @@ from central_config import (
 
 from filter_static_false_positives import filter_static_detections
 from faster_rcnn_utils import get_faster_rcnn_model, load_compatible_weights
+from class_probabilities import (
+    enable_faster_rcnn_probabilities,
+    ultralytics_probability_predictor,
+    require_probability_csv,
+)
 
 
 class ActiveLearningInferenceDataset(Dataset):
@@ -175,8 +181,9 @@ def process_all_images(
     ):
         if model_type in ["yolo", "rtdetr"]:
             img_size_arg = 1152 if model_type == "yolo" else 640
-            
+
             preds = model.predict(
+                predictor=ultralytics_probability_predictor(model_type),
                 source=batch_imgs,
                 imgsz=img_size_arg,
                 device=device,
@@ -196,8 +203,11 @@ def process_all_images(
                     boxes_norm = pred.boxes.xyxyn.cpu().numpy()
                     confs = pred.boxes.conf.cpu().numpy()
                     clss = pred.boxes.cls.cpu().numpy()
+                    probabilities = pred.class_probabilities.float().cpu().tolist()
 
-                    for b, conf, cls_id in zip(boxes_norm, confs, clss):
+                    for b, conf, cls_id, class_probs in zip(
+                        boxes_norm, confs, clss, probabilities
+                    ):
                         cls_id = int(cls_id)
                         if conf >= DETECTION_THRESHOLDS.get(cls_id, 0.25):
                             class_name = model.names.get(
@@ -224,6 +234,8 @@ def process_all_images(
                                 round(y1, 1),
                                 round(x2, 1),
                                 round(y2, 1),
+                                json.dumps(class_probs),
+                                "sigmoid",
                             ]
                             all_writer.writerow(row_data)
                             grand_total_boxes += 1
@@ -250,11 +262,12 @@ def process_all_images(
                 scores = out["scores"].cpu().numpy()
                 labels = out["labels"].cpu().numpy() - 1
                 boxes = out["boxes"].cpu().numpy()
+                probabilities = out["class_probabilities"].float().cpu().tolist()
                 orig_w = ow
                 orig_h = oh
                 subfolder_name = Path(img_path_str).parent.name
 
-                for s, l, b in zip(scores, labels, boxes):
+                for s, l, b, class_probs in zip(scores, labels, boxes, probabilities):
                     cls_id = int(l)
                     if s >= DETECTION_THRESHOLDS.get(cls_id, 0.25):
                         class_name = (
@@ -278,6 +291,8 @@ def process_all_images(
                             round(y1, 1),
                             round(x2, 1),
                             round(y2, 1),
+                            json.dumps(class_probs),
+                            "softmax_background",
                         ]
                         all_writer.writerow(row_data)
                         grand_total_boxes += 1
@@ -369,6 +384,7 @@ def main():
         load_compatible_weights(model, args.model_path)
         model.to(device)
         model.eval()
+        enable_faster_rcnn_probabilities(model)
     elif "rtdetr" in model_name or "rtdetr" in parent_dirs:
         model_type = "rtdetr"
         print(f"Loading RT-DETR model from {args.model_path}")
@@ -377,6 +393,14 @@ def main():
         model_type = "yolo"
         print(f"Loading YOLO model from {args.model_path}")
         model = YOLO(args.model_path)
+
+    if model_type in ("yolo", "rtdetr"):
+        names = model.names
+        ordered_names = [names[i] for i in range(len(names))]
+        if ordered_names != list(CLASSES):
+            raise ValueError(
+                f"Model class order {ordered_names} differs from configured classes {CLASSES}"
+            )
 
     active_batch_size = (
         args.batch_size
@@ -392,6 +416,7 @@ def main():
     os.makedirs(args.output_dir, exist_ok=True)
 
     if not args.force and os.path.exists(unified_csv_path):
+        require_probability_csv(unified_csv_path)
         print(
             f"Predictions already exist at {unified_csv_path}. Skipping batch inference. Use --force to override."
         )
@@ -453,6 +478,8 @@ def main():
                 "ymin",
                 "xmax",
                 "ymax",
+                "class_probabilities",
+                "probability_kind",
             ]
             all_writer.writerow(headers)
 

@@ -7,6 +7,11 @@ import argparse
 import subprocess
 import pandas as pd
 
+try:
+    from .class_probabilities import require_probability_csv
+except ImportError:
+    from class_probabilities import require_probability_csv
+
 import sys
 import os
 
@@ -28,6 +33,7 @@ from config import (
     PRETRAINED_RTDETR,
     PRETRAINED_FASTER_RCNN,
 )
+
 try:
     from .annotation_handoff import AnnotationBatchError, ValidationIssue, load_manifest
 except ImportError:  # Script execution from the pipelines directory.
@@ -452,6 +458,7 @@ def main():
                 # PHASE 2: AUTOMATED BATCH INFERENCE & FILTERING
                 # ----------------------------------------------------
                 if not args.force and os.path.exists(unified_predictions_csv):
+                    require_probability_csv(unified_predictions_csv)
                     print(
                         f"\n[Skip] Phase 2: Batch inference already completed. Found predictions at: {unified_predictions_csv}"
                     )
@@ -494,6 +501,7 @@ def main():
                 # PHASE 3: CATEGORY-BIASED ACTIVE CURATION (DCUS & CCMS)
                 # ----------------------------------------------------
                 if not args.force and os.path.exists(curation_priority_csv):
+                    require_probability_csv(curation_priority_csv)
                     print(
                         f"\n[Skip] Phase 3: Active curation already completed. Found priority CSV at: {curation_priority_csv}"
                     )

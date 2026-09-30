@@ -88,8 +88,10 @@ def ingest_annotation_batch(
 
     state_file = root / "pipelines" / f"al_state_{model_type}_clahe_pretrained.json"
     if experiment_name:
-        state_file = root / "pipelines" / (
-            f"al_state_{model_type}_clahe_pretrained_{experiment_name}.json"
+        state_file = (
+            root
+            / "pipelines"
+            / (f"al_state_{model_type}_clahe_pretrained_{experiment_name}.json")
         )
     state = load_state(state_file) if state_file.is_file() else None
     if state is None:
@@ -152,7 +154,9 @@ def ingest_annotation_batch(
 
     src_images_dir = annotated_path / "images"
     src_labels_dir = annotated_path / "labels"
-    print(f"\nMerging {len(validated.images)} annotated images into cycle {next_cycle}...")
+    print(
+        f"\nMerging {len(validated.images)} annotated images into cycle {next_cycle}..."
+    )
     for image in tqdm(validated.images, desc="Ingesting Annotations"):
         shutil.copy2(src_images_dir / image.file_name, img_dest_dir / image.file_name)
         label_name = f"{Path(image.file_name).stem}.txt"
