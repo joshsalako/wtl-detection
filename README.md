@@ -18,6 +18,10 @@ The study begins with 20 annotated images and combines CLAHE contrast enhancemen
 
 Faster R-CNN produced the strongest WLT detection results in the study, with an F1 score of 0.86 and AP50 of 0.94. Applied to more than one million images, the final pipeline identified 730 WLT occurrences across 387 non-redundant detection events and mapped 15 re-encounters across opposite sides of the tunnels.
 
+## AmphiLens
+
+This research helped shape [AmphiLens](https://github.com/joshsalako/amphilens), an open-source application for wildlife camera-trap detection, result review, and model fine-tuning. Its pretrained models are available on [Hugging Face](https://huggingface.co/josh-salako/amphilens). For the underlying research, see [*Annotation-Efficient Object Detection of Endangered Western Leopard Toads in Camera Trap Imagery for Assessing Wildlife Tunnel Use*](https://openreview.net/pdf?id=0YnE65NGna).
+
 ## Repository contents
 
 ```text
