@@ -20,7 +20,7 @@ Faster R-CNN produced the strongest WLT detection results in the study, with an 
 
 ## AmphiLens
 
-This research helped shape [AmphiLens](https://github.com/joshsalako/amphilens), an open-source application for wildlife camera-trap detection, result review, and model fine-tuning. Its pretrained models are available on [Hugging Face](https://huggingface.co/josh-salako/amphilens). For the underlying research, see [*Annotation-Efficient Object Detection of Endangered Western Leopard Toads in Camera Trap Imagery for Assessing Wildlife Tunnel Use*](https://openreview.net/pdf?id=0YnE65NGna).
+This research led to the open-source [AmphiLens application](https://github.com/joshsalako/amphilens). Browse its [pretrained models](https://huggingface.co/josh-salako/amphilens) and read the paper, [*Annotation-Efficient Object Detection of Endangered Western Leopard Toads in Camera Trap Imagery for Assessing Wildlife Tunnel Use*](https://openreview.net/pdf?id=0YnE65NGna).
 
 ## Repository contents
 
